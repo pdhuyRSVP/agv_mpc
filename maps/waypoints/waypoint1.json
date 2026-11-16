@@ -1,0 +1,58 @@
+{
+  "name": "waypoint1",
+  "path": "/home/hcmute/agv_mpc/maps/waypoints/waypoint1.json",
+  "created_or_updated_by": "WebOrb",
+  "updated_at": "2026-06-18T19:27:04",
+  "active_map": {
+    "map_name": "maze_31",
+    "base_path": "/home/hcmute/agv_mpc/src/orb3_agv_sim/maps/maze_31",
+    "yaml_path": "/home/hcmute/agv_mpc/src/orb3_agv_sim/maps/maze_31.yaml",
+    "pgm_path": "/home/hcmute/agv_mpc/src/orb3_agv_sim/maps/maze_31.pgm",
+    "posegraph_path": "",
+    "data_path": ""
+  },
+  "waypoints": [
+    {
+      "name": "P01",
+      "x": 0,
+      "y": 0,
+      "theta": 0,
+      "type": "waypoint"
+    },
+    {
+      "name": "P02",
+      "x": 30.55,
+      "y": 0,
+      "theta": 0,
+      "type": "waypoint"
+    }
+  ],
+  "topology_nodes": [
+    {
+      "id": "topo-1781784951977-637",
+      "name": "P01",
+      "type": "waypoint",
+      "x": 0,
+      "y": 0,
+      "theta": 0,
+      "radius": 0.25,
+      "wait_sec": 0,
+      "max_speed": 0.25,
+      "enabled": true,
+      "color": "#2f80ed"
+    },
+    {
+      "id": "topo-1781785021547-560",
+      "name": "P02",
+      "type": "waypoint",
+      "x": 30.55,
+      "y": 0,
+      "theta": 0,
+      "radius": 0.25,
+      "wait_sec": 0,
+      "max_speed": 0.25,
+      "enabled": true,
+      "color": "#2f80ed"
+    }
+  ]
+}

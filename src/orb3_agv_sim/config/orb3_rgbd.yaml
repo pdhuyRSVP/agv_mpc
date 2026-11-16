@@ -1,0 +1,54 @@
+%YAML:1.0
+File.version: "1.0"
+
+Camera.type: "PinHole"
+
+Camera.width: 640
+Camera.height: 480
+Camera.newWidth: 640
+Camera.newHeight: 480
+Camera.fps: 10
+Camera.RGB: 0
+
+# Astra Pro fallback values. Replace with /camera/color/camera_info K.
+Camera1.fx: 570.3422047415297
+Camera1.fy: 570.3422047415297
+Camera1.cx: 319.5
+Camera1.cy: 239.5
+
+Camera1.k1: 0.0
+Camera1.k2: 0.0
+Camera1.p1: 0.0
+Camera1.p2: 0.0
+Camera1.k3: 0.0
+
+Camera.bf: 19.8
+
+Stereo.b: 0.075
+Stereo.bf: 19.8
+Stereo.ThDepth: 40.0
+
+RGBD.DepthMapFactor: 1.0
+RGBD.ThDepth: 40.0
+
+ORBextractor.nFeatures: 2000
+ORBextractor.scaleFactor: 1.2
+ORBextractor.nLevels: 8
+ORBextractor.iniThFAST: 5
+ORBextractor.minThFAST: 2
+
+Viewer.imageViewScale: 1.0
+Viewer.KeyFrameSize: 0.05
+Viewer.KeyFrameLineWidth: 1.0
+Viewer.GraphLineWidth: 0.9
+Viewer.PointSize: 2.0
+Viewer.CameraSize: 0.08
+Viewer.CameraLineWidth: 3.0
+Viewer.ViewpointX: 0.0
+Viewer.ViewpointY: -0.7
+Viewer.ViewpointZ: -1.8
+Viewer.ViewpointF: 500.0
+
+System.thFarPoints: 40.0
+System.LoadAtlasFromFile: ""
+System.SaveAtlasToFile: ""

@@ -1,0 +1,35 @@
+HOME:
+  frame_id: "map"
+  position:
+    x: 0.0
+    y: 0.0
+    z: 0.0
+  orientation:
+    x: 0.0
+    y: 0.0
+    z: 0.0
+    w: 1.0
+
+P1:
+  frame_id: "map"
+  position:
+    x: 3.65209
+    y: -0.0447102
+    z: 0.0
+  orientation:
+    x: 0.0
+    y: 0.0
+    z: 0.999998
+    w: 0.00185331
+
+P2:
+  frame_id: "map"
+  position:
+    x: -1.45878
+    y: 3.60534
+    z: 0.0
+  orientation:
+    x: 0.0
+    y: 0.0
+    z: -0.715212
+    w: 0.698907

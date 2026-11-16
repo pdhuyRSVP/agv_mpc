@@ -1,0 +1,620 @@
+#include <fcntl.h>
+#include <poll.h>
+#include <sys/file.h>
+#include <termios.h>
+#include <unistd.h>
+
+#include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <cmath>
+#include <cstdint>
+#include <cstdio>
+#include <cstring>
+#include <cerrno>
+#include <limits>
+#include <mutex>
+#include <optional>
+#include <stdexcept>
+#include <string>
+#include <thread>
+#include <vector>
+
+#include "geometry_msgs/msg/twist.hpp"
+#include "geometry_msgs/msg/twist_with_covariance_stamped.hpp"
+#include "rclcpp/rclcpp.hpp"
+#include "std_msgs/msg/string.hpp"
+
+namespace
+{
+constexpr uint16_t kRegPath0Base = 0x6200;
+constexpr uint16_t kRegPath0Speed = 0x6203;
+constexpr uint16_t kRegPath0Trigger = 0x6207;
+constexpr uint16_t kRegActualVelocity = 0x0B06;
+constexpr uint16_t kTriggerValue = 0x0010;
+constexpr double kReconnectDelayS = 2.0;
+constexpr double kWatchdogS = 3.0;
+constexpr double kMovingVx = 0.005;
+constexpr double kMovingWz = 0.01;
+constexpr double kCovVxStill = 0.001;
+constexpr double kCovWzStill = 0.001;
+constexpr double kCovVxMove = 0.01;
+constexpr double kCovWzMove = 0.01;
+
+uint16_t crc16_modbus(const uint8_t * data, size_t len)
+{
+  uint16_t crc = 0xFFFF;
+  for (size_t i = 0; i < len; ++i) {
+    crc ^= data[i];
+    for (int bit = 0; bit < 8; ++bit) {
+      crc = (crc & 1) ? static_cast<uint16_t>((crc >> 1) ^ 0xA001) :
+        static_cast<uint16_t>(crc >> 1);
+    }
+  }
+  return crc;
+}
+
+void append_crc(std::vector<uint8_t> & frame)
+{
+  const uint16_t crc = crc16_modbus(frame.data(), frame.size());
+  frame.push_back(static_cast<uint8_t>(crc & 0xFF));
+  frame.push_back(static_cast<uint8_t>((crc >> 8) & 0xFF));
+}
+
+bool check_crc(const std::vector<uint8_t> & frame)
+{
+  if (frame.size() < 3) {
+    return false;
+  }
+  const uint16_t rx = static_cast<uint16_t>(frame[frame.size() - 2] |
+    (frame[frame.size() - 1] << 8));
+  return rx == crc16_modbus(frame.data(), frame.size() - 2);
+}
+
+std::vector<uint8_t> build_fc16(uint8_t sid, uint16_t reg, const std::vector<uint16_t> & values)
+{
+  const uint16_t qty = static_cast<uint16_t>(values.size());
+  std::vector<uint8_t> frame = {
+    sid,
+    0x10,
+    static_cast<uint8_t>((reg >> 8) & 0xFF),
+    static_cast<uint8_t>(reg & 0xFF),
+    static_cast<uint8_t>((qty >> 8) & 0xFF),
+    static_cast<uint8_t>(qty & 0xFF),
+    static_cast<uint8_t>(qty * 2),
+  };
+  for (const uint16_t value : values) {
+    frame.push_back(static_cast<uint8_t>((value >> 8) & 0xFF));
+    frame.push_back(static_cast<uint8_t>(value & 0xFF));
+  }
+  append_crc(frame);
+  return frame;
+}
+
+std::vector<uint8_t> build_fc03(uint8_t sid, uint16_t reg, uint16_t qty)
+{
+  std::vector<uint8_t> frame = {
+    sid,
+    0x03,
+    static_cast<uint8_t>((reg >> 8) & 0xFF),
+    static_cast<uint8_t>(reg & 0xFF),
+    static_cast<uint8_t>((qty >> 8) & 0xFF),
+    static_cast<uint8_t>(qty & 0xFF),
+  };
+  append_crc(frame);
+  return frame;
+}
+
+speed_t baud_to_termios(int baud)
+{
+  switch (baud) {
+    case 9600: return B9600;
+    case 19200: return B19200;
+    case 38400: return B38400;
+    case 57600: return B57600;
+    case 115200: return B115200;
+    case 230400: return B230400;
+    default: return B115200;
+  }
+}
+}  // namespace
+
+class ModbusRTU
+{
+public:
+  ModbusRTU(
+    std::string port, int baud, double timeout_s, double inter_frame_s,
+    rclcpp::Logger logger)
+  : port_(std::move(port)),
+    baud_(baud),
+    timeout_s_(timeout_s),
+    inter_frame_s_(inter_frame_s),
+    logger_(logger)
+  {
+  }
+
+  ~ModbusRTU()
+  {
+    close_port();
+  }
+
+  bool open_port()
+  {
+    close_port();
+    fd_ = open(port_.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK);
+    if (fd_ < 0) {
+      RCLCPP_ERROR(logger_, "[Modbus] Cannot open %s: %s", port_.c_str(), std::strerror(errno));
+      return false;
+    }
+
+    termios tty {};
+    if (tcgetattr(fd_, &tty) != 0) {
+      RCLCPP_ERROR(logger_, "[Modbus] tcgetattr failed");
+      close_port();
+      return false;
+    }
+
+    cfmakeraw(&tty);
+    const speed_t speed = baud_to_termios(baud_);
+    cfsetispeed(&tty, speed);
+    cfsetospeed(&tty, speed);
+    tty.c_cflag |= static_cast<tcflag_t>(CLOCAL | CREAD);
+    tty.c_cflag &= static_cast<tcflag_t>(~PARENB);
+    tty.c_cflag &= static_cast<tcflag_t>(~CSTOPB);
+    tty.c_cflag &= static_cast<tcflag_t>(~CSIZE);
+    tty.c_cflag |= CS8;
+    tty.c_cc[VMIN] = 0;
+    tty.c_cc[VTIME] = static_cast<cc_t>(std::max(1.0, std::ceil(timeout_s_ * 10.0)));
+
+    if (tcsetattr(fd_, TCSANOW, &tty) != 0) {
+      RCLCPP_ERROR(logger_, "[Modbus] tcsetattr failed");
+      close_port();
+      return false;
+    }
+
+    tcflush(fd_, TCIOFLUSH);
+    RCLCPP_INFO(logger_, "[Modbus] Serial opened: %s @ %d", port_.c_str(), baud_);
+    return true;
+  }
+
+  void close_port()
+  {
+    if (fd_ >= 0) {
+      close(fd_);
+      fd_ = -1;
+    }
+  }
+
+  bool is_open() const
+  {
+    return fd_ >= 0;
+  }
+
+  bool init_path0(uint8_t sid)
+  {
+    const std::vector<uint16_t> values = {
+      0x0002, 0x0000, 0x0000, 0x0000,
+      0x0190, 0x0190, 0x0000, 0x0000};
+    const auto req = build_fc16(sid, kRegPath0Base, values);
+    const auto resp = send_recv(req, 8);
+    return resp && (*resp)[0] == sid && (*resp)[1] == 0x10;
+  }
+
+  bool write_speed_and_trigger(uint8_t sid, int rpm)
+  {
+    return write_single_register(sid, kRegPath0Speed, static_cast<uint16_t>(rpm)) &&
+           write_single_register(sid, kRegPath0Trigger, kTriggerValue);
+  }
+
+  std::optional<int> read_actual_rpm(uint8_t sid)
+  {
+    const auto req = build_fc03(sid, kRegActualVelocity, 1);
+    const auto resp = send_recv(req, 7);
+    if (!resp || (*resp)[0] != sid || (*resp)[1] != 0x03 || (*resp)[2] != 2) {
+      return std::nullopt;
+    }
+    const uint16_t raw = static_cast<uint16_t>(((*resp)[3] << 8) | (*resp)[4]);
+    return static_cast<int>(static_cast<int16_t>(raw));
+  }
+
+private:
+  bool write_single_register(uint8_t sid, uint16_t reg, uint16_t value)
+  {
+    const auto req = build_fc16(sid, reg, {value});
+    const auto resp = send_recv(req, 8);
+    return resp && (*resp)[0] == sid && (*resp)[1] == 0x10;
+  }
+
+  std::optional<std::vector<uint8_t>> send_recv(const std::vector<uint8_t> & request, size_t expected)
+  {
+    if (fd_ < 0) {
+      return std::nullopt;
+    }
+
+    tcflush(fd_, TCIFLUSH);
+    std::this_thread::sleep_for(std::chrono::duration<double>(inter_frame_s_));
+
+    size_t sent = 0;
+    const auto write_deadline = std::chrono::steady_clock::now() +
+      std::chrono::duration<double>(timeout_s_);
+    while (sent < request.size() && std::chrono::steady_clock::now() < write_deadline) {
+      const ssize_t n = write(fd_, request.data() + sent, request.size() - sent);
+      if (n > 0) {
+        sent += static_cast<size_t>(n);
+        continue;
+      }
+      if (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) {
+        RCLCPP_WARN(logger_, "[Modbus] Write failed: %s", std::strerror(errno));
+        close_port();
+        return std::nullopt;
+      }
+      pollfd pfd {fd_, POLLOUT, 0};
+      (void)poll(&pfd, 1, 2);
+    }
+    if (sent != request.size()) {
+      RCLCPP_WARN(logger_, "[Modbus] Write failed");
+      return std::nullopt;
+    }
+    tcdrain(fd_);
+
+    std::vector<uint8_t> response(expected, 0);
+    size_t got = 0;
+    const auto deadline = std::chrono::steady_clock::now() +
+      std::chrono::duration<double>(timeout_s_);
+    while (got < expected && std::chrono::steady_clock::now() < deadline) {
+      const ssize_t n = read(fd_, response.data() + got, expected - got);
+      if (n > 0) {
+        got += static_cast<size_t>(n);
+      } else {
+        pollfd pfd {fd_, POLLIN, 0};
+        (void)poll(&pfd, 1, 2);
+      }
+    }
+
+    if (got != expected) {
+      return std::nullopt;
+    }
+    if (!check_crc(response)) {
+      RCLCPP_DEBUG(logger_, "[Modbus] CRC error");
+      return std::nullopt;
+    }
+    return response;
+  }
+
+  std::string port_;
+  int baud_;
+  double timeout_s_;
+  double inter_frame_s_;
+  rclcpp::Logger logger_;
+  int fd_ {-1};
+};
+
+class WheelVelNodeDirect : public rclcpp::Node
+{
+public:
+  WheelVelNodeDirect()
+  : Node("wheel_vel_node_direct")
+  {
+    port_ = declare_parameter<std::string>(
+      "port", "/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_A5069RR4-if00-port0");
+    baud_ = declare_parameter<int>("baud", 115200);
+    const double timeout_ms = declare_parameter<double>("modbus_timeout_ms", 30.0);
+    const double inter_ms = declare_parameter<double>("inter_frame_ms", 2.0);
+    command_timeout_s_ = declare_parameter<double>("command_timeout_s", 1.5);
+    loop_hz_ = declare_parameter<double>("loop_hz", 20.0);
+    wheel_radius_ = declare_parameter<double>("wheel_radius", 0.1);
+    wheel_separation_ = declare_parameter<double>("wheel_separation", 0.636);
+    gear_ratio_ = declare_parameter<double>("gear_ratio", 10.0);
+    base_frame_ = declare_parameter<std::string>("base_frame", "Base_footprint");
+    invert_right_fb_ = declare_parameter<bool>("invert_right_fb", true);
+    invert_right_cmd_ = declare_parameter<bool>("invert_right_cmd", false);
+    rpm_clamp_ = declare_parameter<int>("cmd_rpm_clamp", 3000);
+    init_path0_ = declare_parameter<bool>("init_path0", true);
+    command_keepalive_s_ = declare_parameter<double>("command_keepalive_s", 0.2);
+    left_slave_id_ = declare_parameter<int>("left_slave_id", 1);
+    right_slave_id_ = declare_parameter<int>("right_slave_id", 2);
+
+    acquire_lock();
+    modbus_ = std::make_unique<ModbusRTU>(
+      port_, baud_, timeout_ms / 1000.0, inter_ms / 1000.0, get_logger());
+
+    vel_pub_ = create_publisher<geometry_msgs::msg::TwistWithCovarianceStamped>("/wheel_vel", 10);
+    raw_pub_ = create_publisher<std_msgs::msg::String>("/wheel_vel_raw", 10);
+    cmd_sub_ = create_subscription<geometry_msgs::msg::Twist>(
+      "/cmd_vel", 10, std::bind(&WheelVelNodeDirect::cmd_vel_callback, this, std::placeholders::_1));
+
+    running_.store(true);
+    modbus_thread_ = std::thread(&WheelVelNodeDirect::modbus_loop, this);
+    publish_timer_ = create_wall_timer(
+      std::chrono::milliseconds(20), std::bind(&WheelVelNodeDirect::publish_wheel_vel, this));
+    watchdog_timer_ = create_wall_timer(
+      std::chrono::seconds(1), std::bind(&WheelVelNodeDirect::watchdog, this));
+
+    RCLCPP_INFO(
+      get_logger(),
+      "Wheel RS485 C++ driver ready: port=%s baud=%d r=%.3f sep=%.3f gear=%.3f loop=%.1fHz cmd_timeout=%.2fs sidL=%d sidR=%d init_path0=%s",
+      port_.c_str(), baud_, wheel_radius_, wheel_separation_, gear_ratio_, loop_hz_,
+      command_timeout_s_, left_slave_id_, right_slave_id_, init_path0_ ? "true" : "false");
+  }
+
+  ~WheelVelNodeDirect() override
+  {
+    running_.store(false);
+    if (modbus_thread_.joinable()) {
+      modbus_thread_.join();
+    }
+    release_lock();
+  }
+
+private:
+  void acquire_lock()
+  {
+    lock_fd_ = open("/tmp/amr_wheel_serial.lock", O_CREAT | O_RDWR, 0666);
+    if (lock_fd_ < 0) {
+      throw std::runtime_error("Cannot open wheel serial lock: " + std::string(std::strerror(errno)));
+    }
+    if (flock(lock_fd_, LOCK_EX | LOCK_NB) != 0) {
+      throw std::runtime_error(
+        "Wheel serial is already locked by another process. Stop duplicate wheel nodes first.");
+    }
+  }
+
+  void release_lock()
+  {
+    if (lock_fd_ >= 0) {
+      flock(lock_fd_, LOCK_UN);
+      close(lock_fd_);
+      lock_fd_ = -1;
+    }
+  }
+
+  void cmd_vel_callback(const geometry_msgs::msg::Twist::SharedPtr msg)
+  {
+    const double v = msg->linear.x;
+    const double w = msg->angular.z;
+    const double vl = v - w * wheel_separation_ / 2.0;
+    const double vr = v + w * wheel_separation_ / 2.0;
+
+    std::lock_guard<std::mutex> lock(cmd_mutex_);
+    cmd_left_rpm_ = ms_to_rpm(vl);
+    cmd_right_rpm_ = ms_to_rpm(vr);
+    last_cmd_time_ = std::chrono::steady_clock::now();
+    have_cmd_ = true;
+  }
+
+  void modbus_loop()
+  {
+    bool path0_inited = false;
+    int consecutive_errors = 0;
+    constexpr int kMaxConsecutiveErrors = 40;
+    int last_sent_l = std::numeric_limits<int>::min();
+    int last_sent_r = std::numeric_limits<int>::min();
+    auto last_command_write = std::chrono::steady_clock::time_point::min();
+    const auto loop_period = std::chrono::duration<double>(1.0 / std::max(1.0, loop_hz_));
+
+    while (running_.load() && rclcpp::ok()) {
+      const auto start = std::chrono::steady_clock::now();
+
+      if (!modbus_->is_open()) {
+        if (!modbus_->open_port()) {
+          std::this_thread::sleep_for(std::chrono::duration<double>(kReconnectDelayS));
+          continue;
+        }
+        path0_inited = false;
+        consecutive_errors = 0;
+        last_sent_l = std::numeric_limits<int>::min();
+        last_sent_r = std::numeric_limits<int>::min();
+      }
+
+      if (init_path0_ && !path0_inited) {
+        const bool ok_l = modbus_->init_path0(static_cast<uint8_t>(left_slave_id_));
+        const bool ok_r = modbus_->init_path0(static_cast<uint8_t>(right_slave_id_));
+        if (ok_l && ok_r) {
+          path0_inited = true;
+          RCLCPP_INFO(get_logger(), "[Modbus] PATH0 init OK");
+        } else {
+          RCLCPP_WARN(get_logger(), "[Modbus] PATH0 init failed: L=%d R=%d", ok_l, ok_r);
+          std::this_thread::sleep_for(std::chrono::milliseconds(500));
+          continue;
+        }
+      }
+
+      int rpm_l = 0;
+      int rpm_r = 0;
+      {
+        std::lock_guard<std::mutex> lock(cmd_mutex_);
+        const auto now = std::chrono::steady_clock::now();
+        if (have_cmd_ && std::chrono::duration<double>(now - last_cmd_time_).count() < command_timeout_s_) {
+          rpm_l = static_cast<int>(std::clamp(cmd_left_rpm_, -static_cast<double>(rpm_clamp_),
+            static_cast<double>(rpm_clamp_)));
+          rpm_r = static_cast<int>(std::clamp(cmd_right_rpm_, -static_cast<double>(rpm_clamp_),
+            static_cast<double>(rpm_clamp_)));
+        }
+      }
+      if (invert_right_cmd_) {
+        rpm_r = -rpm_r;
+      }
+
+      const auto now_steady = std::chrono::steady_clock::now();
+      const bool command_changed = rpm_l != last_sent_l || rpm_r != last_sent_r;
+      const bool keepalive_due =
+        last_command_write == std::chrono::steady_clock::time_point::min() ||
+        std::chrono::duration<double>(now_steady - last_command_write).count() >=
+        command_keepalive_s_;
+      bool command_ok = true;
+      if (command_changed || keepalive_due) {
+        const bool ok_wl =
+          modbus_->write_speed_and_trigger(static_cast<uint8_t>(left_slave_id_), rpm_l);
+        const bool ok_wr =
+          modbus_->write_speed_and_trigger(static_cast<uint8_t>(right_slave_id_), rpm_r);
+        command_ok = ok_wl && ok_wr;
+        if (command_ok) {
+          last_sent_l = rpm_l;
+          last_sent_r = rpm_r;
+          last_command_write = now_steady;
+        }
+      }
+      auto fb_l = modbus_->read_actual_rpm(static_cast<uint8_t>(left_slave_id_));
+      auto fb_r = modbus_->read_actual_rpm(static_cast<uint8_t>(right_slave_id_));
+
+      if (!command_ok || !fb_l || !fb_r) {
+        ++consecutive_errors;
+        if (consecutive_errors >= kMaxConsecutiveErrors) {
+          RCLCPP_ERROR(get_logger(), "[Modbus] Too many consecutive errors, reconnecting");
+          modbus_->close_port();
+          path0_inited = false;
+          consecutive_errors = 0;
+          std::this_thread::sleep_for(std::chrono::duration<double>(kReconnectDelayS));
+          continue;
+        }
+        const auto elapsed = std::chrono::steady_clock::now() - start;
+        if (elapsed < loop_period) {
+          std::this_thread::sleep_for(loop_period - elapsed);
+        }
+        continue;
+      } else {
+        consecutive_errors = 0;
+      }
+
+      int left = *fb_l;
+      int right = *fb_r;
+      if (invert_right_fb_) {
+        right = -right;
+      }
+
+      std_msgs::msg::String raw_msg;
+      raw_msg.data = std::to_string(left) + "," + std::to_string(right);
+      raw_pub_->publish(raw_msg);
+
+      {
+        std::lock_guard<std::mutex> lock(data_mutex_);
+        left_rpm_fb_ = static_cast<double>(left);
+        right_rpm_fb_ = static_cast<double>(right);
+        has_feedback_ = true;
+        last_feedback_time_ = std::chrono::steady_clock::now();
+        watchdog_warned_ = false;
+      }
+
+      const auto elapsed = std::chrono::steady_clock::now() - start;
+      if (elapsed < loop_period) {
+        std::this_thread::sleep_for(loop_period - elapsed);
+      }
+    }
+  }
+
+  void publish_wheel_vel()
+  {
+    double left = 0.0;
+    double right = 0.0;
+    {
+      std::lock_guard<std::mutex> lock(data_mutex_);
+      if (!has_feedback_) {
+        return;
+      }
+      left = left_rpm_fb_;
+      right = right_rpm_fb_;
+    }
+
+    const double vl = rpm_to_ms(left);
+    const double vr = rpm_to_ms(right);
+    const double v = 0.5 * (vr + vl);
+    const double w = wheel_separation_ != 0.0 ? (vr - vl) / wheel_separation_ : 0.0;
+    const bool moving = std::abs(v) > kMovingVx || std::abs(w) > kMovingWz;
+
+    geometry_msgs::msg::TwistWithCovarianceStamped msg;
+    msg.header.stamp = now();
+    msg.header.frame_id = base_frame_;
+    msg.twist.twist.linear.x = v;
+    msg.twist.twist.angular.z = w;
+    msg.twist.covariance.fill(0.0);
+    msg.twist.covariance[0] = moving ? kCovVxMove : kCovVxStill;
+    msg.twist.covariance[7] = 1e6;
+    msg.twist.covariance[14] = 1e6;
+    msg.twist.covariance[21] = 1e6;
+    msg.twist.covariance[28] = 1e6;
+    msg.twist.covariance[35] = moving ? kCovWzMove : kCovWzStill;
+    vel_pub_->publish(msg);
+  }
+
+  void watchdog()
+  {
+    std::lock_guard<std::mutex> lock(data_mutex_);
+    if (!has_feedback_ || watchdog_warned_) {
+      return;
+    }
+    const auto elapsed = std::chrono::duration<double>(
+      std::chrono::steady_clock::now() - last_feedback_time_).count();
+    if (elapsed > kWatchdogS) {
+      RCLCPP_WARN(get_logger(), "[WATCHDOG] No wheel feedback for %.1fs", elapsed);
+      watchdog_warned_ = true;
+    }
+  }
+
+  double rpm_to_ms(double rpm) const
+  {
+    const double wheel_rpm = gear_ratio_ != 0.0 ? rpm / gear_ratio_ : rpm;
+    return wheel_rpm * (2.0 * M_PI / 60.0) * wheel_radius_;
+  }
+
+  double ms_to_rpm(double v_ms) const
+  {
+    if (wheel_radius_ == 0.0) {
+      return 0.0;
+    }
+    return (v_ms * 60.0 / (2.0 * M_PI * wheel_radius_)) * gear_ratio_;
+  }
+
+  std::string port_;
+  int baud_;
+  double command_timeout_s_;
+  double loop_hz_;
+  double wheel_radius_;
+  double wheel_separation_;
+  double gear_ratio_;
+  std::string base_frame_;
+  bool invert_right_fb_;
+  bool invert_right_cmd_;
+  int rpm_clamp_;
+  bool init_path0_;
+  double command_keepalive_s_;
+  int left_slave_id_;
+  int right_slave_id_;
+  int lock_fd_ {-1};
+
+  std::unique_ptr<ModbusRTU> modbus_;
+  std::atomic_bool running_ {false};
+  std::thread modbus_thread_;
+
+  std::mutex cmd_mutex_;
+  double cmd_left_rpm_ {0.0};
+  double cmd_right_rpm_ {0.0};
+  bool have_cmd_ {false};
+  std::chrono::steady_clock::time_point last_cmd_time_ {std::chrono::steady_clock::now()};
+
+  std::mutex data_mutex_;
+  double left_rpm_fb_ {0.0};
+  double right_rpm_fb_ {0.0};
+  bool has_feedback_ {false};
+  bool watchdog_warned_ {false};
+  std::chrono::steady_clock::time_point last_feedback_time_ {std::chrono::steady_clock::now()};
+
+  rclcpp::Publisher<geometry_msgs::msg::TwistWithCovarianceStamped>::SharedPtr vel_pub_;
+  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr raw_pub_;
+  rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr cmd_sub_;
+  rclcpp::TimerBase::SharedPtr publish_timer_;
+  rclcpp::TimerBase::SharedPtr watchdog_timer_;
+};
+
+int main(int argc, char ** argv)
+{
+  rclcpp::init(argc, argv);
+  try {
+    rclcpp::spin(std::make_shared<WheelVelNodeDirect>());
+  } catch (const std::exception & e) {
+    std::fprintf(stderr, "wheel_vel_node_direct failed: %s\n", e.what());
+    rclcpp::shutdown();
+    return 1;
+  }
+  rclcpp::shutdown();
+  return 0;
+}

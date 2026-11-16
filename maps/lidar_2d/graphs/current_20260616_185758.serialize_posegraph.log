@@ -1,0 +1,5 @@
+requester: making request: slam_toolbox.srv.SerializePoseGraph_Request(filename='/home/hcmute/agv_mpc/maps/sessions/current_20260616_185758/slam_toolbox/posegraph')
+
+response:
+slam_toolbox.srv.SerializePoseGraph_Response(result=0)
+

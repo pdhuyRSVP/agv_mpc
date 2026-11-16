@@ -1,0 +1,16 @@
+[INFO] [1781611092.127009974] [map_saver]: 
+	map_saver lifecycle node launched. 
+	Waiting on external lifecycle transitions to activate
+	See https://design.ros2.org/articles/node_lifecycle.html for more information.
+[INFO] [1781611092.133544828] [map_saver]: Creating
+[INFO] [1781611092.167584609] [map_saver]: Configuring
+[INFO] [1781611092.213742892] [map_saver]: Saving map from 'map' topic to '/home/hcmute/agv_mpc/maps/sessions/current_20260616_185758/slam_toolbox/map' file
+[WARN] [1781611092.213904493] [map_saver]: Free threshold unspecified. Setting it to default value: 0.250000
+[WARN] [1781611092.213932717] [map_saver]: Occupied threshold unspecified. Setting it to default value: 0.650000
+[WARN] [1781611092.973945920] [map_io]: Image format unspecified. Setting it to: pgm
+[INFO] [1781611092.977302612] [map_io]: Received a 1614 X 661 map @ 0.05 m/pix
+[INFO] [1781611094.316329295] [map_io]: Writing map occupancy data to /home/hcmute/agv_mpc/maps/sessions/current_20260616_185758/slam_toolbox/map.pgm
+[INFO] [1781611094.322258417] [map_io]: Writing map metadata to /home/hcmute/agv_mpc/maps/sessions/current_20260616_185758/slam_toolbox/map.yaml
+[INFO] [1781611094.322586707] [map_io]: Map saved
+[INFO] [1781611094.322617299] [map_saver]: Map saved successfully
+[INFO] [1781611094.327072077] [map_saver]: Destroying

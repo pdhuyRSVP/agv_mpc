@@ -1,0 +1,87 @@
+slam_toolbox:
+  ros__parameters:
+    use_sim_time: false
+
+    solver_plugin: solver_plugins::CeresSolver
+    ceres_linear_solver: SPARSE_NORMAL_CHOLESKY
+    ceres_preconditioner: SCHUR_JACOBI
+    ceres_trust_strategy: LEVENBERG_MARQUARDT
+    ceres_dogleg_type: TRADITIONAL_DOGLEG
+    ceres_loss_function: None
+
+    odom_frame: odom
+    map_frame: map
+    base_frame: Base_footprint
+    scan_topic: /scan_filtered
+
+    # Refine mode: continue from a serialized posegraph and add new scans.
+    # Do not use this launch while Nav2/Graph Factor is driving a mission.
+    mode: mapping
+    map_file_name: /home/hcmute/agv_mpc/maps/lidar_2d/graphs/current_20260616_185758
+    map_start_at_dock: true
+
+    transform_timeout: 0.2
+    tf_buffer_duration: 30.0
+    transform_publish_period: 0.05
+
+    # Keep enough CPU headroom for Nav2/ORB and prevent delayed TF under load.
+    throttle_scans: 2
+    scan_queue_size: 10
+    stack_size_to_use: 40000000
+    enable_interactive_mode: false
+
+    resolution: 0.05
+    map_update_interval: 5.0
+    minimum_time_interval: 0.30
+    min_laser_range: 0.2
+    max_laser_range: 10.0
+    minimum_range: 0.15
+    maximum_range: 12.0
+    minimum_laser_range: 0.15
+    maximum_laser_range: 12.0
+
+    use_scan_matching: true
+    use_scan_barycenter: true
+    minimum_travel_distance: 0.10
+    minimum_travel_heading: 0.087
+
+    scan_buffer_size: 10
+    scan_buffer_maximum_scan_distance: 10.0
+    link_match_minimum_response_fine: 0.1
+    link_scan_maximum_distance: 1.5
+    distance_decomposition_radius: 3.5
+    distance_penalty_gain: 0.0
+
+    do_loop_closing: true
+    loop_search_maximum_distance: 3.0
+    loop_search_space_dimension: 8.0
+    loop_search_space_resolution: 0.05
+    loop_search_space_smear_deviation: 0.03
+    loop_match_minimum_chain_size: 15
+    loop_match_maximum_variance_coarse: 3.0
+    loop_match_minimum_response_coarse: 0.35
+    loop_match_minimum_response_fine: 0.45
+
+    lifelong_search_use_tree: false
+    lifelong_minimum_score: 0.1
+    lifelong_iou_match: 0.85
+    lifelong_node_removal_score: 0.04
+    lifelong_overlap_score_scale: 0.06
+    lifelong_constraint_multiplier: 0.08
+    lifelong_nearby_penalty: 0.001
+    lifelong_candidates_scale: 0.03
+
+    correlation_search_space_dimension: 0.5
+    correlation_search_space_resolution: 0.01
+    correlation_search_space_smear_deviation: 0.1
+
+    distance_variance_penalty: 0.5
+    angle_variance_penalty: 1.0
+    fine_search_angle_offset: 0.00349
+    coarse_search_angle_offset: 0.349
+    coarse_angle_resolution: 0.0349
+    minimum_angle_penalty: 0.9
+    minimum_distance_penalty: 0.5
+    use_response_expansion: true
+
+    debug_logging: false

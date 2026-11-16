@@ -1,0 +1,78 @@
+%YAML:1.0
+---
+File.version: "1.0"
+
+Camera.type: "PinHole"
+
+Camera.width: 320
+Camera.height: 240
+Camera.newWidth: 320
+Camera.newHeight: 240
+Camera.fps: 10.0
+Camera.RGB: 1
+
+Camera1.fx: 264.22
+Camera1.fy: 264.22
+Camera1.cx: 160.0
+Camera1.cy: 120.0
+
+Camera1.k1: 0.0
+Camera1.k2: 0.0
+Camera1.p1: 0.0
+Camera1.p2: 0.0
+Camera1.k3: 0.0
+
+Camera.bf: 19.8
+
+Stereo.b: 0.075
+Stereo.ThDepth: 40.0
+
+RGBD.DepthMapFactor: 1.0
+RGBD.ThDepth: 40.0
+
+IMU.T_b_c1: !!opencv-matrix
+   rows: 4
+   cols: 4
+   dt: f
+   data: [0.0,  0.0,  1.0,  0.370000,
+         -1.0,  0.0,  0.0, -0.017007,
+          0.0, -1.0,  0.0,  0.000000,
+          0.0,  0.0,  0.0,  1.0]
+
+Tbc: !!opencv-matrix
+   rows: 4
+   cols: 4
+   dt: f
+   data: [0.0,  0.0,  1.0,  0.370000,
+         -1.0,  0.0,  0.0, -0.017007,
+          0.0, -1.0,  0.0,  0.000000,
+          0.0,  0.0,  0.0,  1.0]
+# AGV anti-aliasing preset: tighten IMU moderately; do not set unrealistically small noise.
+IMU.Frequency: 100.0
+IMU.NoiseGyro: 0.005
+IMU.NoiseAcc: 0.08
+IMU.GyroWalk: 0.0005
+IMU.AccWalk: 0.008
+
+# Reject weak/repeated hallway features more aggressively than the original config.
+ORBextractor.nFeatures: 1000
+ORBextractor.scaleFactor: 1.2
+ORBextractor.nLevels: 8
+ORBextractor.iniThFAST: 12
+ORBextractor.minThFAST: 7
+
+Viewer.imageViewScale: 1.0
+Viewer.KeyFrameSize: 0.05
+Viewer.KeyFrameLineWidth: 1.0
+Viewer.GraphLineWidth: 0.9
+Viewer.PointSize: 2.0
+Viewer.CameraSize: 0.08
+Viewer.CameraLineWidth: 3.0
+Viewer.ViewpointX: 0.0
+Viewer.ViewpointY: -0.7
+Viewer.ViewpointZ: -1.8
+Viewer.ViewpointF: 500.0
+
+System.thFarPoints: 40.0
+System.LoadAtlasFromFile: ""
+System.SaveAtlasToFile: ""

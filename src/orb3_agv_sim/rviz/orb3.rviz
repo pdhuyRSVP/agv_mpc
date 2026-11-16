@@ -1,0 +1,91 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+    Property Tree Widget:
+      Expanded: ~
+      Splitter Ratio: 0.5
+Visualization Manager:
+  Class: ""
+  Displays:
+    - Class: rviz_default_plugins/Grid
+      Name: Grid
+      Enabled: true
+      Cell Size: 1
+      Plane Cell Count: 20
+      Color: 160; 160; 164
+    - Class: rviz_default_plugins/TF
+      Name: TF
+      Enabled: true
+      Show Names: true
+      Show Arrows: false
+      Frame Timeout: 15
+    - Class: rviz_default_plugins/RobotModel
+      Name: RobotModel
+      Enabled: true
+      Description Source: Topic
+      Description Topic:
+        Value: /robot_description
+        Durability Policy: Transient Local
+        Reliability Policy: Reliable
+        History Policy: Keep Last
+        Depth: 1
+      Visual Enabled: true
+      Collision Enabled: false
+      Alpha: 1
+    - Class: rviz_default_plugins/Path
+      Name: OrbPath
+      Enabled: true
+      Topic: { Value: /orbslam3/path, Depth: 100 }
+      Color: 25; 255; 0
+      Line Style: Lines
+      Line Width: 0.03
+    - Class: rviz_default_plugins/Pose
+      Name: OrbPose
+      Enabled: true
+      Topic: { Value: /orbslam3/pose, Depth: 5 }
+      Shape: Arrow
+      Color: 255; 25; 0
+      Alpha: 1
+      Shaft Length: 0.3
+      Head Length: 0.1
+    - Class: rviz_default_plugins/PointCloud2
+      Name: MapPoints
+      Enabled: true
+      Topic: { Value: /orbslam3/map_points, Depth: 5 }
+      Color: 0; 200; 255
+      Style: Points
+      Size (Pixels): 3
+      Color Transformer: FlatColor
+      Alpha: 1.0
+    - Class: rviz_default_plugins/Image
+      Name: CameraRGB
+      Enabled: true
+      Topic: { Value: /camera/image_raw, Depth: 5 }
+    - Class: rviz_default_plugins/LaserScan
+      Name: LaserScan
+      Enabled: true
+      Topic: { Value: /scan, Depth: 5 }
+      Color: 0; 170; 255
+      Size (Pixels): 3
+  Enabled: true
+  Global Options:
+    Background Color: 48; 48; 48
+    Fixed Frame: orb_rgbd_map
+    Frame Rate: 30
+  Tools:
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/Interact
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Distance: 10
+      Focal Point: { X: 0, Y: 0, Z: 0 }
+      Pitch: 0.785
+      Yaw: 0.785
+      Name: Current View
+      Target Frame: orb_map
+  Window Geometry:
+    Height: 900
+    Width: 1600
+    X: 0
+    Y: 30

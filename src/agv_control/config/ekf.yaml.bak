@@ -1,0 +1,64 @@
+ekf_odom_node:
+  ros__parameters:
+    frequency: 30.0
+    sensor_timeout: 0.15
+
+    two_d_mode: true
+    publish_tf: true
+    publish_acceleration: false
+
+    map_frame: map
+    odom_frame: odom
+    base_link_frame: Base_footprint
+    world_frame: odom
+
+    # ========== WHEEL VELOCITY (JETSON) ==========
+    twist0: /wheel_vel
+
+    # [x, y, z,
+    #  roll, pitch, yaw,
+    #  vx, vy, vz,
+    #  vroll, vpitch, vyaw,
+    #  ax, ay, az]
+    twist0_config: [
+      false, false, false,
+      false, false, false,
+      true,  false, false,
+      false, false, false,
+      false, false, false
+    ]
+
+    twist0_differential: false
+    twist0_relative: false
+    twist0_nodelay: true
+    twist0_queue_size: 10
+    twist0_rejection_threshold: 5.0
+
+    # ========== IMU ORIENTATION ONLY ==========
+    # /imu carries the HWT901B AHRS quaternion only. Raw gyro and acceleration
+    # remain available on /imu/data_raw for ORB-SLAM3, but are not fused here.
+    # Relative mode removes the arbitrary magnetic heading present at startup.
+    imu0: /imu
+
+    imu0_config: [
+      false, false, false,  # x, y, z (IMU does not provide position)
+      false, false, true,   # yaw orientation
+      false, false, false,  # vx, vy, vz
+      false, false, false,  # raw angular velocity is not fused
+      false, false, false   # acceleration not fused
+    ]
+
+    imu0_differential: false
+    imu0_relative: true
+    imu0_nodelay: true
+    imu0_queue_size: 10
+    imu0_remove_gravitational_acceleration: false
+    # Correct robot_localization parameter for orientation measurements.
+    # /imu yaw covariance is 0.000352581 rad^2 (1.076 deg standard deviation).
+    # It is 100x the measured 10-minute variance (3.5258e-6 rad^2),
+    # retaining a 10x standard-deviation margin for magnetic disturbances.
+    # Reject abrupt magnetic-heading jumps without rejecting normal turns.
+    imu0_pose_rejection_threshold: 3.0
+
+    print_diagnostics: true
+    dynamic_process_noise_covariance: false

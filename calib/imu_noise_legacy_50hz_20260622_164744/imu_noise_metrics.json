@@ -1,0 +1,43 @@
+{
+  "sample_count": 991,
+  "duration_msg_sec": 19.804529666900635,
+  "hz": 49.988564063431895,
+  "dt_avg_sec": 0.020004575421111753,
+  "dt_min_sec": 0.008765935897827148,
+  "dt_max_sec": 0.03523755073547363,
+  "axis_stats": {
+    "gx": {
+      "mean": -0.00027088459927344824,
+      "std_per_sample": 0.0004997901033551381
+    },
+    "gy": {
+      "mean": -0.001575860406884425,
+      "std_per_sample": 0.0006125337719999208
+    },
+    "gz": {
+      "mean": 0.0,
+      "std_per_sample": 0.0
+    },
+    "ax": {
+      "mean": -0.002053553391657732,
+      "std_per_sample": 0.003809912184492393
+    },
+    "ay": {
+      "mean": -0.08916770421094539,
+      "std_per_sample": 0.0067394237053065
+    },
+    "az": {
+      "mean": 9.859032523103439,
+      "std_per_sample": 0.018908003671798873
+    }
+  },
+  "accel_norm_mean": 9.859438958472799,
+  "accel_norm_std": 0.018926182816478718,
+  "orb_slam3_preliminary": {
+    "IMU.NoiseGyro": 5.244144785628526e-05,
+    "IMU.NoiseAcc": 0.0013887911343369442,
+    "IMU.GyroWalk": null,
+    "IMU.AccWalk": null,
+    "note": "NoiseGyro/NoiseAcc are short stationary estimates. GyroWalk/AccWalk require Allan variance from a long static bag."
+  }
+}

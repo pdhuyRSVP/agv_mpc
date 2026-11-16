@@ -1,0 +1,6 @@
+# Preliminary stationary IMU noise estimate.
+# Do not treat GyroWalk/AccWalk as calibrated without Allan variance.
+IMU.NoiseGyro: 5.24414479e-05
+IMU.NoiseAcc: 0.00138879113
+# IMU.GyroWalk: TODO_Allan_variance
+# IMU.AccWalk: TODO_Allan_variance

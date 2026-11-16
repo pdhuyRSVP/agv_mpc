@@ -1,0 +1,28 @@
+joy_node:
+  ros__parameters:
+    dev: /dev/input/js0
+    deadzone: 0.05
+    autorepeat_rate: 20.0
+
+teleop_node:
+  ros__parameters:
+
+    # ---- NÚT BẮT BUỘC NHẤN ĐỂ KÍCH HOẠT ----
+    enable_button: 5       # RB = Button 7
+    enable_turbo_button: 9 # RT = Button 9 (Boost tốc)
+
+    # ---- TIẾN / LÙI ----
+    axis_linear:
+      x: 1                 # Stick trái lên/xuống
+    scale_linear:
+      x: -0.5               # Tốc độ bình thường
+    scale_linear_turbo:
+      x: -1.0               # Nhấn RT thì chạy tối đa
+
+    # ---- XOAY TRÁI / PHẢI ----
+    axis_angular:
+      z: 0                 # Stick trái trái/phải
+    scale_angular:
+      z: -0.5
+    scale_angular_turbo:
+      z: -1.0

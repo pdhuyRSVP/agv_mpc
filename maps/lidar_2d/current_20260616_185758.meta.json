@@ -1,0 +1,9 @@
+{
+  "map_name": "current_20260616_185758",
+  "source_session": "/home/hcmute/agv_mpc/maps/sessions/current_20260616_185758",
+  "yaml_path": "/home/hcmute/agv_mpc/maps/lidar_2d/current_20260616_185758.yaml",
+  "pgm_path": "/home/hcmute/agv_mpc/maps/lidar_2d/current_20260616_185758.pgm",
+  "posegraph_path": "/home/hcmute/agv_mpc/maps/lidar_2d/graphs/current_20260616_185758.posegraph",
+  "data_path": "/home/hcmute/agv_mpc/maps/lidar_2d/graphs/current_20260616_185758.data",
+  "copied_at": "2026-06-19T19:43:27+07:00"
+}

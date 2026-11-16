@@ -1,0 +1,457 @@
+# nav2_mppi_params_no_height.yaml – Nav2 dùng LiDAR, bỏ camera depth/high-obstacle costmap
+# ===========================================================================
+# FIX CHÍNH:
+#   [1] MPPI: batch_size 1000→400, time_steps 36→24 → giảm 70% tính toán
+#   [2] Controller: frequency 20→10Hz → đủ cho diff-drive, tốn 50% CPU
+#   [3] min_rotational_vel: 0.4→0.15 → không ép robot xoay quá mạnh
+#   [4] GoalAngleCritic threshold: 0.2→0.8m → chỉ căn góc khi gần goal
+#   [5] Local costmap: chỉ dùng lidar_obstacle_layer + inflation_layer
+#   [6] Global costmap: chỉ dùng static_layer + obstacle_layer(LiDAR) + inflation_layer
+#   [7] transform_tolerance: 1.0→0.3 (EKF 20Hz ổn định rồi)
+# ===========================================================================
+
+amcl:
+  ros__parameters:
+    use_sim_time: false
+    alpha1: 0.2
+    alpha2: 0.2
+    alpha3: 0.2
+    alpha4: 0.2
+    alpha5: 0.2
+    base_frame_id: "Base_footprint"
+    beam_skip_distance: 0.5
+    beam_skip_error_threshold: 0.9
+    beam_skip_threshold: 0.3
+    do_beamskip: false
+    global_frame_id: "map"
+    lambda_short: 0.1
+    laser_likelihood_max_dist: 2.0
+    laser_max_range: 100.0
+    laser_min_range: -1.0
+    laser_model_type: "likelihood_field"
+    max_beams: 60
+    max_particles: 2000    # FIX: 2500→2000 giảm CPU AMCL
+    min_particles: 500      # FIX: 500→400
+    odom_frame_id: "odom"
+    pf_err: 0.05
+    pf_z: 0.99
+    recovery_alpha_fast: 0.0
+    recovery_alpha_slow: 0.0
+    resample_interval: 1
+    robot_model_type: "nav2_amcl::DifferentialMotionModel"
+    save_pose_rate: 0.5
+    sigma_hit: 0.2
+    tf_broadcast: false
+    update_min_a: 0.05      # FIX: 0.2→0.25 ít update hơn khi xoay nhỏ
+    update_min_d: 0.05       # FIX: 0.25→0.3
+    z_hit: 0.5
+    z_max: 0.05
+    z_rand: 0.5
+    z_short: 0.05
+    scan_topic: /scan_filtered
+    
+    set_initial_pose: true
+    always_reset_initial_pose: false
+    initial_pose:
+      x: 0.0
+      y: 0.0
+      z: 0.0
+      yaw: 0.0
+
+amcl_map_client:
+  ros__parameters:
+    use_sim_time: false
+
+amcl_rclcpp_node:
+  ros__parameters:
+    use_sim_time: false
+
+bt_navigator:
+  ros__parameters:
+    use_sim_time: false
+    transform_tolerance: 0.3   # FIX: 1.0→0.3 (EKF 20Hz stable)
+    global_frame: map
+    robot_base_frame: Base_footprint
+    odom_topic: /odom
+    bt_loop_duration: 10
+    default_server_timeout: 20
+    navigators: ["navigate_to_pose", "navigate_through_poses"]
+    navigate_to_pose:
+      plugin: "nav2_bt_navigator/NavigateToPoseNavigator"
+    navigate_through_poses:
+      plugin: "nav2_bt_navigator/NavigateThroughPosesNavigator"
+    error_code_names:
+      - compute_path_error_code
+      - follow_path_error_code
+
+bt_navigator_rclcpp_node:
+  ros__parameters:
+    use_sim_time: false
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  CONTROLLER SERVER – FIX CHÍNH
+# ═══════════════════════════════════════════════════════════════════════════
+controller_server:
+  ros__parameters:
+    use_sim_time: false
+    transform_tolerance: 0.3          # FIX: 1.0→0.3
+    controller_frequency: 10.0        # FIX [2]: 20→10Hz, đủ cho diff-drive
+    min_x_velocity_threshold: 0.001
+    min_y_velocity_threshold: 0.0
+    min_theta_velocity_threshold: 0.01
+    odom_topic: /odom
+    cmd_vel_topic: /cmd_vel_nav_raw   # Nav2 xuất vào twist_mux, không xuất trực tiếp /cmd_vel
+    progress_checker_plugin: "progress_checker"
+    goal_checker_plugin: "goal_checker"
+    controller_plugins: ["FollowPath"]
+
+    progress_checker:
+      plugin: "nav2_controller::SimpleProgressChecker"
+      required_movement_radius: 0.1
+      movement_time_allowance: 25.0
+
+    goal_checker:
+      plugin: "nav2_controller::SimpleGoalChecker"
+      xy_goal_tolerance: 0.06         # FIX: 0.032→0.05 dễ đến goal hơn
+      yaw_goal_tolerance: 0.05        # FIX: 0.025→0.05
+      stateful: False
+
+    # ── MPPI CONTROLLER ──────────────────────────────────────────────────────
+    FollowPath:
+      plugin: "nav2_mppi_controller::MPPIController"
+      
+      # FIX [1]: batch_size 1000→400, time_steps 36→24
+      # Tính toán: 1000×36 = 36000 rollouts → 400×24 = 9600 (~73% giảm)
+      time_steps: 27              # FIX: 36→24 (2.4s horizon @ 0.1s dt)
+      model_dt: 0.1
+      batch_size: 700             # FIX: 1000→400
+      
+      # Noise std – giữ nguyên
+      vx_std: 0.2
+      vy_std: 0.0
+      wz_std: 0.5
+      
+      # Velocity limits
+      vx_max: 0.40                # max translational velocity
+      vx_min: -0.08              # allow small reverse only for final goal settling
+      vy_max: 0.0                 # diff-drive
+      wz_max: 0.40                # reduced angular velocity for smoother turns
+      
+      # Acceleration limits
+      ax_max: 0.5                 # FIX: 0.65→0.5
+      ax_min: -0.6                # FIX: -0.75→-0.6
+      ay_min: 0.0
+      ay_max: 0.0
+      az_max: 0.7
+      
+      iteration_count: 1
+      temperature: 0.7
+      gamma: 0.015
+      motion_model: "DiffDrive"
+      visualize: false
+      critic_index_to_visualize: 0
+      reset_period: 0.5
+      regenerate_noises: true
+      
+      TrajectoryVisualizer:
+        trajectory_step: 5
+        time_step: 3
+      
+      TrajectoryValidator:
+        plugin: "mppi::DefaultOptimalTrajectoryValidator"
+        collision_lookahead_time: 2.0
+        consider_footprint: false
+      
+      AckermannConstraints:
+        min_turning_r: 0.2
+      
+      # ── CRITICS ────────────────────────────────────────────────────────────
+      critics: [
+        "ConstraintCritic",
+        "CostCritic",
+        "GoalCritic",
+        "GoalAngleCritic",
+        "PathAlignCritic",
+        "PathFollowCritic",
+        "PathAngleCritic",
+        "PreferForwardCritic"
+      ]
+      
+      ConstraintCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 4.0
+      
+      GoalCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 14.0
+        threshold_to_consider: 1.4
+      
+      # FIX [4]: GoalAngleCritic chỉ hoạt động khi CỰC GẦN goal
+      GoalAngleCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 2.0
+        threshold_to_consider: 0.25
+      
+      PreferForwardCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 8.0
+        threshold_to_consider: 0.5
+      
+      CostCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 3.81
+        critical_cost: 300.0
+        consider_footprint: true
+        collision_cost: 1000000.0
+        near_goal_distance: 1.0
+        trajectory_point_step: 2
+      
+      PathAlignCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 2.5
+        max_path_occupancy_ratio: 0.05
+        trajectory_point_step: 4
+        threshold_to_consider: 0.5
+        offset_from_furthest: 20
+        use_path_orientations: false
+      
+      PathFollowCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 7.0
+        offset_from_furthest: 5
+        threshold_to_consider: 1.4
+      
+      PathAngleCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 0.8
+        offset_from_furthest: 4
+        threshold_to_consider: 0.25
+        max_angle_to_furthest: 1.0
+        mode: 0
+
+controller_server_rclcpp_node:
+  ros__parameters:
+    use_sim_time: false
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  LOCAL COSMAP – FIX CHÍNH
+# ═══════════════════════════════════════════════════════════════════════════
+
+local_costmap:
+  local_costmap:
+    ros__parameters:
+      update_frequency: 10.0             # [FIX] tăng 5 → 10 Hz, đồng bộ với controller 20Hz
+      publish_frequency: 5.0             # [FIX] tăng 2 → 5 Hz
+      global_frame: odom
+      robot_base_frame: Base_footprint
+      use_sim_time: false
+      rolling_window: true
+      width: 6
+      height: 6
+      resolution: 0.05
+      footprint: "[[0.41, 0.357], [0.41, -0.357], [-0.41, -0.357], [-0.41, 0.357]]"
+      plugins: ["lidar_obstacle_layer", "inflation_layer"]
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        cost_scaling_factor: 3.0
+        inflation_radius: 0.55
+
+      # ── LAYER 1: LIDAR ──────────────────────────────────────────────────
+      # Nguồn: /scan_filtered (RPLidar 2D, mặt phẳng nằm ngang)
+      # clearing: true → raytrace bình thường; chỉ xóa được vật cản do chính
+      #   lidar đánh dấu (nằm trong tầm nhìn mặt phẳng lidar).
+      # max_obstacle_height: 2.0 → với LaserScan thực chất vô nghĩa vì toàn
+      #   bộ điểm lidar đều ở cùng Z (độ cao gắn lidar ~0.2-0.4m). Giữ 2.0
+      #   là "chấp nhận tất cả", không lọc bỏ điểm nào. Tham số này có tác
+      #   dụng thực sự với PointCloud2 nơi điểm có Z biến thiên.
+      # ────────────────────────────────────────────────────────────────────
+      lidar_obstacle_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        enabled: true
+        observation_sources: scan
+        scan:
+          topic: /scan_filtered
+          sensor_frame: Lidar
+          max_obstacle_height: 2.0       # với LaserScan: chỉ là ngưỡng lọc an toàn
+          clearing: true
+          marking: true
+          data_type: "LaserScan"
+          raytrace_max_range: 5.0
+          raytrace_min_range: 0.0
+          obstacle_max_range: 4.0
+          obstacle_min_range: 0.0
+
+      static_layer:
+        map_subscribe_transient_local: True
+      always_send_full_costmap: True
+  local_costmap_client:
+    ros__parameters:
+      use_sim_time: false
+  local_costmap_rclcpp_node:
+    ros__parameters:
+      use_sim_time: false
+ 
+# ═══════════════════════════════════════════════════════════════════════════
+#  GLOBAL COSTMAP – dùng SLAM map + lidar scan
+#  [FIX] Bỏ voxel_layer (camera depth) khỏi global costmap:
+#    - Camera depth xử lý real-time ở local costmap (qua scan_depth) là đủ
+#    - Global costmap không cần real-time depth → giảm tải CPU đáng kể
+#    - Nếu muốn tái kích hoạt: thêm "voxel_layer" vào plugins và
+#      bỏ comment block voxel_layer bên dưới
+# ═══════════════════════════════════════════════════════════════════════════
+global_costmap:
+  global_costmap:
+    ros__parameters:
+      use_sim_time: false
+      robot_base_frame: Base_footprint
+      global_frame: map
+      update_frequency: 1.0
+      publish_frequency: 0.5
+      footprint: "[[0.41, 0.357], [0.41, -0.357], [-0.41, -0.357], [-0.41, 0.357]]"
+      resolution: 0.05
+      track_unknown_space: true
+      transform_tolerance: 1.0
+
+      plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
+
+      static_layer:
+        plugin: "nav2_costmap_2d::StaticLayer"
+        map_subscribe_transient_local: true
+
+      obstacle_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        enabled: true
+        observation_sources: scan
+
+        scan:
+          topic: /scan_filtered
+          sensor_frame: Lidar
+          max_obstacle_height: 2.0
+          clearing: true
+          marking: true
+          data_type: "LaserScan"
+          raytrace_max_range: 5.0
+          raytrace_min_range: 0.0
+          obstacle_max_range: 4.0
+          obstacle_min_range: 0.0
+
+        # scan_depth/high-obstacle source đã bỏ khỏi global costmap.
+
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        cost_scaling_factor: 3.0
+        inflation_radius: 0.55
+        always_send_full_costmap: true
+
+
+map_server:
+  ros__parameters:
+    use_sim_time: false
+    yaml_filename: "/home/hcmute/agv_mpc/maps/lidar_2d/map_c205_20261029.yaml"
+
+map_saver:
+  ros__parameters:
+    use_sim_time: false
+    save_map_timeout: 5.0
+    free_thresh_default: 0.25
+    occupied_thresh_default: 0.65
+    map_subscribe_transient_local: true
+
+planner_server:
+  ros__parameters:
+    expected_planner_frequency: 10.0
+    use_sim_time: false
+    planner_plugins: ["GridBased"]
+    GridBased:
+      plugin: "nav2_navfn_planner/NavfnPlanner"
+      tolerance: 0.5
+      use_astar: true
+      allow_unknown: true
+
+smoother_server:
+  ros__parameters:
+    use_sim_time: false
+    odom_topic: /odom
+    smoother_plugins: ["simple_smoother"]
+    simple_smoother:
+      plugin: "nav2_smoother::SimpleSmoother"
+      tolerance: 1.0e-10
+      max_its: 1000
+      do_refinement: true
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  BEHAVIOR SERVER – FIX min_rotational_vel
+# ═══════════════════════════════════════════════════════════════════════════
+behavior_server:
+  ros__parameters:
+    costmap_topic: local_costmap/costmap_raw
+    footprint_topic: local_costmap/published_footprint
+    cycle_frequency: 10.0
+    behavior_plugins: ["spin", "backup", "drive_on_heading", "wait"]
+    spin:
+      plugin: "nav2_behaviors/Spin"
+    backup:
+      plugin: "nav2_behaviors/BackUp"
+    drive_on_heading:
+      plugin: "nav2_behaviors/DriveOnHeading"
+    wait:
+      plugin: "nav2_behaviors/Wait"
+    global_frame: odom
+    robot_base_frame: Base_footprint
+    transform_tolerance: 0.3      # FIX: 1.0→0.3
+    use_sim_time: false
+    simulate_ahead_time: 2.0
+    max_rotational_vel: 0.6       # FIX: 0.8→0.6
+    min_rotational_vel: 0.15      # FIX [3]: 0.4→0.15 – không ép xoay mạnh
+    rotational_acc_lim: 3.2
+
+waypoint_follower:
+  ros__parameters:
+    use_sim_time: false
+    loop_rate: 20
+    stop_on_failure: false
+    waypoint_task_executor_plugin: "wait_at_waypoint"
+    wait_at_waypoint:
+      plugin: "nav2_waypoint_follower::WaitAtWaypoint"
+      enabled: true
+      waypoint_pause_duration: 200
+
+velocity_smoother:
+  ros__parameters:
+    use_sim_time: false
+    smoothing_frequency: 20.0
+    scale_velocities: false
+    feedback: "OPEN_LOOP"
+    max_velocity: [0.40, 0.0, 0.40]    # match MPPI limits
+    min_velocity: [-0.08, 0.0, -0.40]  # allow tiny reverse for final goal settling only
+    max_accel: [0.5, 0.0, 1.0]
+    max_decel: [-0.8, 0.0, -1.3]
+    odom_topic: "/odom"
+    odom_duration: 0.1
+    deadband_velocity: [0.0, 0.0, 0.0]
+    velocity_timeout: 1.0
+
+robot_state_publisher:
+  ros__parameters:
+    use_sim_time: false
+
+lifecycle_manager:
+  ros__parameters:
+    use_sim_time: false
+    autostart: true
+    node_names:
+      - controller_server
+      - planner_server
+      - smoother_server
+      - behavior_server
+      - bt_navigator
+      - waypoint_follower
+      - velocity_smoother
