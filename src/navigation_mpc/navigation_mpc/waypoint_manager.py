@@ -20,13 +20,23 @@ class WaypointManager(Node):
 
         super().__init__('waypoint_manager')
 
+        # Robot base frame
+        self.declare_parameter(
+            'robot_base_frame',
+            'Base_footprint'
+        )
+
+        self.robot_base_frame = (
+            self.get_parameter('robot_base_frame').value
+        )
+
         # ============================================================
         # Parameters
         # ============================================================
 
         self.declare_parameter(
             'position_tolerance',
-            0.25
+            0.15
         )
 
         self.declare_parameter(
@@ -36,12 +46,12 @@ class WaypointManager(Node):
 
         self.declare_parameter(
             'check_yaw',
-            False
+            True
         )
 
         self.declare_parameter(
             'yaw_tolerance',
-            0.20
+            0.10
         )
 
         # ============================================================
@@ -255,7 +265,7 @@ class WaypointManager(Node):
             transform = (
                 self.tf_buffer.lookup_transform(
                     'map',
-                    'base_footprint',
+                    self.robot_base_frame,
                     Time()
                 )
             )
