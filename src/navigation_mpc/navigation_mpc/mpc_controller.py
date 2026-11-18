@@ -27,6 +27,30 @@ class MPCController(Node):
 
         super().__init__('mpc_controller')
 
+        # Robot base frame
+        self.declare_parameter(
+            'robot_base_frame',
+            'Base_footprint'
+        )
+
+        self.robot_base_frame = (
+            self.get_parameter('robot_base_frame')
+            .get_parameter_value()
+            .string_value
+        )
+
+        # MPC velocity command topic
+        self.declare_parameter(
+            'cmd_vel_topic',
+            '/mpc/cmd_vel_test'
+        )
+
+        self.cmd_vel_topic = (
+            self.get_parameter('cmd_vel_topic')
+            .get_parameter_value()
+            .string_value
+        )
+
         # ============================================================
         # MPC parameters
         # ============================================================
@@ -35,14 +59,14 @@ class MPCController(Node):
         self.dt = 0.1
 
         # Reference speed used to time-parameterize global path
-        self.v_ref = 0.5
+        self.v_ref = 0.2
 
         # Input limits
-        self.v_min = -0.20
-        self.v_max = 1.0
+        self.v_min = 0.0
+        self.v_max = 0.2
 
-        self.w_min = -1.0
-        self.w_max = 1.0
+        self.w_min = -0.2
+        self.w_max = 0.2
 
         # Goal condition
         self.goal_tolerance = 0.15
@@ -52,7 +76,7 @@ class MPCController(Node):
 
         # Final in-place rotation
         self.final_yaw_kp = 1.5
-        self.final_w_max = 0.60          # rad/s
+        self.final_w_max = 0.20          # rad/s
 
         # ============================================================
         # MPC weights
@@ -144,7 +168,7 @@ class MPCController(Node):
 
         self.cmd_pub = self.create_publisher(
             Twist,
-            '/diff_drive_controller/cmd_vel_unstamped',
+            self.cmd_vel_topic,
             10
         )
 
@@ -723,7 +747,7 @@ class MPCController(Node):
                     try:
                         transform = self.tf_buffer.lookup_transform(
                             'map',
-                            'base_footprint',
+                            self.robot_base_frame,
                             Time()
                         )
 
@@ -824,7 +848,7 @@ class MPCController(Node):
             transform = (
                 self.tf_buffer.lookup_transform(
                     target_frame,
-                    'base_footprint',
+                    self.robot_base_frame,
                     Time()
                 ))
         except TransformException:
@@ -1333,7 +1357,7 @@ class MPCController(Node):
 
                 transform = self.tf_buffer.lookup_transform(
                     'map',
-                    'base_footprint',
+                    self.robot_base_frame,
                     Time()
                 )
 
