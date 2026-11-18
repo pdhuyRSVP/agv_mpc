@@ -1,0 +1,241 @@
+# nav2_params_mpc.yaml – Nav2 dùng LiDAR.
+# =============================================================================
+# nav2_params_mpc.yaml
+# Controller: Model Predictive Control (MPC)
+# Robot     : Differential Drive (2-wheel)
+# Goal      : Minimize x/y/yaw errors — maximum stability & precision
+# Tuned for : Nav2 Humble
+# =============================================================================
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  AMCL
+# ═══════════════════════════════════════════════════════════════════════════
+amcl:
+  ros__parameters:
+    use_sim_time: false
+    alpha1: 0.2
+    alpha2: 0.2
+    alpha3: 0.2
+    alpha4: 0.2
+    alpha5: 0.2
+    base_frame_id: "Base_footprint"
+    beam_skip_distance: 0.5
+    beam_skip_error_threshold: 0.9
+    beam_skip_threshold: 0.3
+    do_beamskip: false
+    global_frame_id: "map"
+    lambda_short: 0.1
+    laser_likelihood_max_dist: 2.0
+    laser_max_range: 100.0
+    laser_min_range: -1.0
+    laser_model_type: "likelihood_field"
+    max_beams: 60
+    max_particles: 2000    # FIX: 2500→2000 giảm CPU AMCL
+    min_particles: 500      # FIX: 500→400
+    odom_frame_id: "odom"
+    pf_err: 0.05
+    pf_z: 0.99
+    recovery_alpha_fast: 0.0
+    recovery_alpha_slow: 0.0
+    resample_interval: 1
+    robot_model_type: "nav2_amcl::DifferentialMotionModel"
+    save_pose_rate: 0.5
+    sigma_hit: 0.2
+    tf_broadcast: false
+    update_min_a: 0.05      # FIX: 0.2→0.25 ít update hơn khi xoay nhỏ
+    update_min_d: 0.05       # FIX: 0.25→0.3
+    z_hit: 0.5
+    z_max: 0.05
+    z_rand: 0.5
+    z_short: 0.05
+    scan_topic: /scan_filtered
+    
+    set_initial_pose: true
+    always_reset_initial_pose: false
+    initial_pose:
+      x: 0.0
+      y: 0.0
+      z: 0.0
+      yaw: 0.0
+
+amcl_map_client:
+  ros__parameters:
+    use_sim_time: false
+
+amcl_rclcpp_node:
+  ros__parameters:
+    use_sim_time: false
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  LOCAL COSTMAP
+# ═══════════════════════════════════════════════════════════════════════════
+
+local_costmap:
+  local_costmap:
+    ros__parameters:
+      update_frequency: 10.0             # [FIX] tăng 5 → 10 Hz, đồng bộ với controller 20Hz
+      publish_frequency: 5.0             # [FIX] tăng 2 → 5 Hz
+      global_frame: odom
+      robot_base_frame: Base_footprint
+      use_sim_time: false
+      rolling_window: true
+      width: 6
+      height: 6
+      resolution: 0.05
+      footprint: "[[0.41, 0.357], [0.41, -0.357], [-0.41, -0.357], [-0.41, 0.357]]"
+      plugins: ["lidar_obstacle_layer", "inflation_layer"]
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        cost_scaling_factor: 3.0
+        inflation_radius: 0.55
+
+      # ── LAYER 1: LIDAR ──────────────────────────────────────────────────
+      # Nguồn: /scan_filtered (RPLidar 2D, mặt phẳng nằm ngang)
+      # clearing: true → raytrace bình thường; chỉ xóa được vật cản do chính
+      #   lidar đánh dấu (nằm trong tầm nhìn mặt phẳng lidar).
+      # max_obstacle_height: 2.0 → với LaserScan thực chất vô nghĩa vì toàn
+      #   bộ điểm lidar đều ở cùng Z (độ cao gắn lidar ~0.2-0.4m). Giữ 2.0
+      #   là "chấp nhận tất cả", không lọc bỏ điểm nào. Tham số này có tác
+      #   dụng thực sự với PointCloud2 nơi điểm có Z biến thiên.
+      # ────────────────────────────────────────────────────────────────────
+      lidar_obstacle_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        enabled: true
+        observation_sources: scan
+        scan:
+          topic: /scan_filtered
+          sensor_frame: Lidar
+          max_obstacle_height: 2.0       # với LaserScan: chỉ là ngưỡng lọc an toàn
+          clearing: true
+          marking: true
+          data_type: "LaserScan"
+          raytrace_max_range: 5.0
+          raytrace_min_range: 0.0
+          obstacle_max_range: 4.0
+          obstacle_min_range: 0.0
+
+      static_layer:
+        map_subscribe_transient_local: True
+      always_send_full_costmap: True
+  local_costmap_client:
+    ros__parameters:
+      use_sim_time: false
+  local_costmap_rclcpp_node:
+    ros__parameters:
+      use_sim_time: false
+ 
+# ═══════════════════════════════════════════════════════════════════════════
+#  GLOBAL COSTMAP – dùng SLAM map + lidar scan
+#  [FIX] Bỏ voxel_layer (camera depth) khỏi global costmap:
+#    - Camera depth xử lý real-time ở local costmap (qua scan_depth) là đủ
+#    - Global costmap không cần real-time depth → giảm tải CPU đáng kể
+#    - Nếu muốn tái kích hoạt: thêm "voxel_layer" vào plugins và
+#      bỏ comment block voxel_layer bên dưới
+# ═══════════════════════════════════════════════════════════════════════════
+global_costmap:
+  global_costmap:
+    ros__parameters:
+      use_sim_time: false
+      robot_base_frame: Base_footprint
+      global_frame: map
+      update_frequency: 1.0
+      publish_frequency: 0.5
+      footprint: "[[0.41, 0.357], [0.41, -0.357], [-0.41, -0.357], [-0.41, 0.357]]"
+      resolution: 0.05
+      track_unknown_space: true
+      transform_tolerance: 1.0
+
+      plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
+
+      static_layer:
+        plugin: "nav2_costmap_2d::StaticLayer"
+        map_subscribe_transient_local: true
+
+      obstacle_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        enabled: true
+        observation_sources: scan
+
+        scan:
+          topic: /scan_filtered
+          sensor_frame: Lidar
+          max_obstacle_height: 2.0
+          clearing: true
+          marking: true
+          data_type: "LaserScan"
+          raytrace_max_range: 5.0
+          raytrace_min_range: 0.0
+          obstacle_max_range: 4.0
+          obstacle_min_range: 0.0
+
+        # scan_depth/high-obstacle source đã bỏ khỏi global costmap.
+
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        cost_scaling_factor: 3.0
+        inflation_radius: 0.55
+        always_send_full_costmap: true
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  MAP SERVER
+# ═══════════════════════════════════════════════════════════════════════════
+map_server:
+  ros__parameters:
+    use_sim_time: false
+    yaml_filename: "/home/hcmute/agv_mpc/maps/lidar_2d/map_c205_20261029.yaml"
+
+map_saver:
+  ros__parameters:
+    use_sim_time: false
+    save_map_timeout: 5.0
+    free_thresh_default: 0.25
+    occupied_thresh_default: 0.65
+    map_subscribe_transient_local: true
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  PLANNER SERVER
+# ═══════════════════════════════════════════════════════════════════════════
+planner_server:
+  ros__parameters:
+    expected_planner_frequency: 10.0
+    use_sim_time: false
+    planner_plugins: ["GridBased"]
+    GridBased:
+      plugin: "nav2_navfn_planner/NavfnPlanner"
+      tolerance: 0.5
+      use_astar: true
+      allow_unknown: false
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  SMOOTHER SERVER
+# ═══════════════════════════════════════════════════════════════════════════
+smoother_server:
+  ros__parameters:
+    use_sim_time: false
+    odom_topic: /odom
+    smoother_plugins: ["simple_smoother"]
+    simple_smoother:
+      plugin: "nav2_smoother::SimpleSmoother"
+      tolerance: 1.0e-10
+      max_its: 1000
+      do_refinement: true
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  ROBOT STATE PUBLISHER
+# ═══════════════════════════════════════════════════════════════════════════
+robot_state_publisher:
+  ros__parameters:
+    use_sim_time: false
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  LIFECYCLE MANAGER
+# ═══════════════════════════════════════════════════════════════════════════
+lifecycle_manager:
+  ros__parameters:
+    use_sim_time: false
+    autostart: true
+    node_names:
+      - amcl
+      - map_server
+      - planner_server
+      - smoother_server
