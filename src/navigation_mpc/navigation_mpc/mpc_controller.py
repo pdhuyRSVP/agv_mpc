@@ -42,7 +42,7 @@ class MPCController(Node):
         # MPC velocity command topic
         self.declare_parameter(
             'cmd_vel_topic',
-            '/mpc/cmd_vel_test'
+            '/cmd_vel'
         )
 
         self.cmd_vel_topic = (
